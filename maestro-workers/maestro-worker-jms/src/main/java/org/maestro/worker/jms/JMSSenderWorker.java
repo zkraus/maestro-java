@@ -33,6 +33,8 @@ import org.maestro.common.writers.OneToOneWorkerChannel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.jms.ExceptionListener;
+import javax.jms.JMSException;
 import javax.jms.Session;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.LockSupport;
@@ -42,6 +44,33 @@ import java.util.function.Supplier;
  * A sender worker for JMS-based testing
  */
 public class JMSSenderWorker implements MaestroSenderWorker {
+    private static class SenderExceptionHandler implements ExceptionListener {
+        private WorkerStateInfo workerStateInfo;
+
+        public SenderExceptionHandler(WorkerStateInfo workerStateInfo) {
+            this.workerStateInfo = workerStateInfo;
+        }
+
+        @Override
+        public void onException(JMSException exception) {
+            if (workerStateInfo.isRunning()) {
+                logger.error("Error running the sender worker: {}", exception.getMessage(), exception);
+            }
+            else {
+                if (workerStateInfo.getExitStatus() == WorkerStateInfo.WorkerExitStatus.WORKER_EXIT_STOPPED) {
+                    logger.warn("An exception was raised while the worker was stopped: {}", exception.getMessage(),
+                            exception);
+                }
+                else {
+                    logger.error("Unexpected error while running the sender worker: {}", exception.getMessage(),
+                            exception);
+
+                    workerStateInfo.setState(false, WorkerStateInfo.WorkerExitStatus.WORKER_EXIT_FAILURE, exception);
+                }
+            }
+        }
+    }
+
     private static final Logger logger = LoggerFactory.getLogger(JMSSenderWorker.class);
 
     private ContentStrategy contentStrategy;
@@ -49,18 +78,19 @@ public class JMSSenderWorker implements MaestroSenderWorker {
     private final OneToOneWorkerChannel workerChannel;
     private final AtomicLong messageCount = new AtomicLong(0);
     private volatile long startedEpochMillis = Long.MIN_VALUE;
+    private final WorkerStateInfo workerStateInfo = new WorkerStateInfo();
 
     private String url;
     private long rate = 0;
     private int number;
 
-    private final Supplier<? extends SenderClient> clientFactory;
+    private final Supplier<? extends JMSSenderClient> clientFactory;
 
     public JMSSenderWorker() {
         this(JMSSenderClient::new, 128 * 1024);
     }
 
-    public JMSSenderWorker(Supplier<? extends SenderClient> clientFactory, int channelCapacity) {
+    public JMSSenderWorker(Supplier<? extends JMSSenderClient> clientFactory, int channelCapacity) {
         this.clientFactory = clientFactory;
         this.workerChannel = new OneToOneWorkerChannel(channelCapacity);
     }
@@ -70,7 +100,7 @@ public class JMSSenderWorker implements MaestroSenderWorker {
         return workerChannel;
     }
 
-    private final WorkerStateInfo workerStateInfo = new WorkerStateInfo();
+
 
     @Override
     public long startedEpochMillis() {
@@ -139,12 +169,11 @@ public class JMSSenderWorker implements MaestroSenderWorker {
         startedEpochMillis = System.currentTimeMillis();
         logger.info("Starting the JMS sender worker");
 
-        final SenderClient client = this.clientFactory.get();
+        final JMSSenderClient client = this.clientFactory.get();
         final long id = Thread.currentThread().getId();
-        boolean started = false;
+
         try {
             doClientStartup(client);
-            started = true;
 
             runLoadLoop(client);
 
@@ -157,7 +186,7 @@ public class JMSSenderWorker implements MaestroSenderWorker {
 
             workerStateInfo.setState(false, WorkerStateInfo.WorkerExitStatus.WORKER_EXIT_FAILURE, e);
         } catch (Exception e) {
-            if (!started) {
+            if (!workerStateInfo.isRunning()) {
                 logger.error("Unable to start the sender worker: {}", e.getMessage(), e);
             }
             else {
@@ -224,7 +253,7 @@ public class JMSSenderWorker implements MaestroSenderWorker {
         return opts.getSessionMode() == Session.SESSION_TRANSACTED && opts.getBatchAcknowledge() > 0;
     }
 
-    private void doClientStartup(final SenderClient client) throws Exception {
+    private void doClientStartup(final JMSSenderClient client) throws Exception {
         if (contentStrategy == null) {
             throw new MaestroException("Trying to run a test without defining the message size");
         }
@@ -235,6 +264,7 @@ public class JMSSenderWorker implements MaestroSenderWorker {
         workerStateInfo.setState(true, null, null);
         client.setNumber(number);
         client.start();
+        client.getConnection().setExceptionListener(new SenderExceptionHandler(workerStateInfo));
     }
 
     private long getIntervalInNanos() {

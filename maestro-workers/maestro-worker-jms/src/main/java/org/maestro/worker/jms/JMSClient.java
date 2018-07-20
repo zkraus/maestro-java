@@ -153,4 +153,8 @@ class JMSClient implements Client {
     public void setUrl(String url) {
         this.url = url;
     }
+
+    public Connection getConnection() {
+        return connection;
+    }
 }
