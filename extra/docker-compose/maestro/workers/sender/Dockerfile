@@ -33,6 +33,6 @@ ADD log4j.properties ${MAESTRO_APP_ROOT}/maestro-${MAESTRO_WORKER_TYPE}/config/l
 ADD maestro-${MAESTRO_WORKER_TYPE}.properties ${MAESTRO_APP_ROOT}/maestro-${MAESTRO_WORKER_TYPE}/config/maestro-${MAESTRO_WORKER_TYPE}.properties
 RUN mkdir -p /maestro/
 VOLUME /maestro/
-RUN mkdir -p /maestro/${MAESTRO_WORKER_TYPE}/logs
+RUN mkdir -p /maestro/sender/logs
 ADD maestro-container-wrapper.sh /usr/bin/maestro-container-wrapper
 CMD [ "sh", "-c", "/usr/bin/maestro-container-wrapper"]
