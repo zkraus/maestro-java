@@ -71,15 +71,14 @@ public final class WorkerContainer {
 
     /**
      * Start the execution of the workers for a predefined class
-     * @param evaluator The evaluator that is run along w/ the worker watchdog (ie.: to evaluate the FCL/latency)
      */
-    public void start(final Evaluator<?> evaluator) {
+    public void start() {
         try {
             for (WorkerRuntimeInfo workerRuntimeInfo : workerRuntimeInfos) {
                 workerRuntimeInfo.thread.start();
             }
 
-            workerWatchdog = new WorkerWatchdog(this, workerRuntimeInfos, evaluator);
+            workerWatchdog = new WorkerWatchdog(this, workerRuntimeInfos);
 
             watchDogThread = new Thread(workerWatchdog);
             watchDogThread.start();
