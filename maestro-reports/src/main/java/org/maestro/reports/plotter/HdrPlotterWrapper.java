@@ -16,10 +16,8 @@
 
 package org.maestro.reports.plotter;
 
-import net.orpiske.hhp.plot.HdrData;
-import net.orpiske.hhp.plot.HdrLogProcessorWrapper;
-import net.orpiske.hhp.plot.HdrPropertyWriter;
-import net.orpiske.hhp.plot.HdrReader;
+import net.orpiske.hhp.plot.*;
+import org.HdrHistogram.Histogram;
 import org.apache.commons.configuration.AbstractConfiguration;
 import org.apache.commons.io.FilenameUtils;
 import org.maestro.common.ConfigurationWrapper;
@@ -35,13 +33,14 @@ import java.io.IOException;
 public class HdrPlotterWrapper implements PlotterWrapper {
     private static final Logger logger = LoggerFactory.getLogger(HdrPlotterWrapper.class);
     private static final AbstractConfiguration config = ConfigurationWrapper.getConfig();
-    private static final String DEFAULT_UNIT_RATE;
+    private static final double DEFAULT_UNIT_RATE;
     private static final boolean legacyHdrMode;
 
-    private String unitRate;
+    private double unitRate;
+    private Histogram histogram;
 
     static {
-        DEFAULT_UNIT_RATE = config.getString("hdr.plotter.default.unit.rate", "1000");
+        DEFAULT_UNIT_RATE = config.getDouble("hdr.plotter.default.unit.rate", 1000.0);
         legacyHdrMode = config.getBoolean("hdr.plotter.legacy.mode", false);
     }
 
@@ -49,7 +48,7 @@ public class HdrPlotterWrapper implements PlotterWrapper {
         this(DEFAULT_UNIT_RATE);
     }
 
-    public HdrPlotterWrapper(final String unitRate) {
+    public HdrPlotterWrapper(double unitRate) {
         this.unitRate = unitRate;
     }
 
@@ -81,6 +80,8 @@ public class HdrPlotterWrapper implements PlotterWrapper {
                 throw new IOException("File " + file.getPath() + " does not exist");
             }
 
+            histogram = Util.getAccumulated(file);
+
             final HdrData hdrData = getHdrData(file);
 
             // HdrPlotterWrapper
@@ -94,7 +95,7 @@ public class HdrPlotterWrapper implements PlotterWrapper {
 
             HdrPropertyWriter propertyWriter = new HdrPropertyWriter();
 
-            propertyWriter.postProcess(file);
+            propertyWriter.postProcess(histogram, file);
 
             return true;
         }
@@ -127,11 +128,11 @@ public class HdrPlotterWrapper implements PlotterWrapper {
     }
 
     private HdrData getHdrDataUnbounded(File file) throws IOException {
-        final HdrLogProcessorWrapper processorWrapper = new HdrLogProcessorWrapper(unitRate);
+        final HdrLogProcessorWrapper processorWrapper = new HdrLogProcessorWrapper();
         String csvFile;
 
         synchronized (this) {
-            csvFile = processorWrapper.convertLog(file.getPath());
+            csvFile = processorWrapper.convertLog(histogram, file.getPath(), DEFAULT_UNIT_RATE);
         }
 
         // CSV Reader
@@ -141,11 +142,11 @@ public class HdrPlotterWrapper implements PlotterWrapper {
 
 
     private HdrData getHdrDataBounded(File file, final long interval) throws IOException {
-        final HdrLogProcessorWrapper processorWrapper = new HdrLogProcessorWrapper(unitRate);
+        final HdrLogProcessorWrapper processorWrapper = new HdrLogProcessorWrapper();
         String[] csvFile;
 
         synchronized (this) {
-            csvFile = processorWrapper.convertLog(file.getPath(), String.valueOf(interval));
+            csvFile = processorWrapper.convertLog(histogram, file.getPath(), interval, DEFAULT_UNIT_RATE);
         }
 
         // CSV Reader
